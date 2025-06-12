@@ -1,63 +1,128 @@
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import requests
 import json
-import io
 import subprocess
 import tempfile
 import os
+import argparse
 
 # --- 設定項目 ---
-text = "こんにちは、ずんだもんなのだ。今日はVOICEVOXの音声合成を試しているのだ。"
-speaker_id = 1
-voicevox_url = "http://0.0.0.0:50021"
-# -----------------
+# 生成AI関連
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-def play_voice():
+# VOICEVOX関連
+VOICEVOX_URL = "http://127.0.0.1:50021"
+DEFAULT_SPEAKER_ID = 1 # デフォルトの話者ID（ずんだもん）
+
+# --- 1. 生成AIからの回答取得機能 ---
+def generate_llm_response(user_prompt: str, pipe: pipeline) -> str:
+  """
+  指定されたパイプラインを使用して、ユーザーのプロンプトに対するLLMの応答を生成する。
+  """
+  print("AIが応答を生成中です...")
+  messages = [
+    {"role": "system", "content": "You are a helpful assistant. Please respond in Japanese."},
+    {"role": "user", "content": user_prompt},
+  ]
+
+  prompt = pipe.tokenizer.apply_chat_template(
+    messages, 
+    tokenize=False, 
+    add_generation_prompt=True
+  )
+
+  outputs = pipe(
+    prompt,
+    max_new_tokens=512,
+    do_sample=True,
+    temperature=0.7,
+    top_p=0.9,
+  )
+
+  assistant_response = outputs[0]["generated_text"][len(prompt):].strip()
+  print(f"AIの応答: {assistant_response}")
+  return assistant_response
+
+def synthesize_and_play_voice(text: str, speaker_id: int):
+  """
+  VOICEVOX Engineを使用してテキストを音声に変換し、再生する。
+  """
+  try:
+    # 1. audio_query (音声合成用のクエリを作成)
+    print("音声合成クエリを作成中です...")
+    query_params = {"text": text, "speaker": speaker_id}
+    response_query = requests.post(f"{VOICEVOX_URL}/audio_query", params=query_params, timeout=10)
+    response_query.raise_for_status()
+    audio_query_data = response_query.json()
+
+    # 2. synthesis (音声合成を実行)
+    print("音声データを合成中です...")
+    synth_params = {"speaker": speaker_id}
+    response_synth = requests.post(
+      f"{VOICEVOX_URL}/synthesis",
+      params=synth_params,
+      data=json.dumps(audio_query_data),
+      timeout=30
+    )
+    response_synth.raise_for_status()
+    audio_data = response_synth.content
+
+    # 3. 一時ファイルに保存して再生
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
+      tmp_wav.write(audio_data)
+      temp_filename = tmp_wav.name
+    print("▶音声を再生します...")
     try:
-        # 1. audio_query (音声合成用のクエリを作成)
-        print("ステップ1: audio_query を実行中...")
-        query_params = {"text": text, "speaker": speaker_id}
-        response_query = requests.post(f"{voicevox_url}/audio_query", params=query_params)
-        
-        response_query.raise_for_status()
-        audio_query_data = response_query.json()
-        print("audio_query に成功しました。")
+      subprocess.run(['aplay', temp_filename], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+      print("再生が完了しました。")
+    finally:
+      os.remove(temp_filename) # 再生後、一時ファイルを確実に削除
 
-        # 2. synthesis (音声合成を実行)
-        print("ステップ2: synthesis を実行中...")
-        synth_params = {"speaker": speaker_id}
-        
-        response_synth = requests.post(
-            f"{voicevox_url}/synthesis",
-            params=synth_params,
-            data=json.dumps(audio_query_data)
-        )
-        
-        response_synth.raise_for_status()
-        audio_data = response_synth.content
+  except requests.exceptions.RequestException as e:
+    print(f"エラー: VOICEVOX Engineに接続できませんでした。")
+    print("   Dockerコンテナが起動しているか、URLが正しいか確認してください。")
+    print(f"   詳細: {e}")
+  except subprocess.CalledProcessError:
+    print("エラー: 音声の再生に失敗しました。'aplay'コマンドがインストールされていますか？")
+  except Exception as e:
+    print(f"予期せぬエラーが発生しました: {e}")
 
 
+# --- 3. メイン処理 ---
+def main():
+  # コマンドライン引数の設定
+  parser = argparse.ArgumentParser(description="生成AIの応答を音声で出力するプログラム")
+  parser.add_argument("prompt", type=str, help="AIへの質問内容")
+  parser.add_argument("--speaker", type=int, default=DEFAULT_SPEAKER_ID, help=f"VOICEVOXの話者ID (デフォルト: {DEFAULT_SPEAKER_ID})")
+  args = parser.parse_args()
 
-        print("ステップ3: 音声をファイルに保存して再生します...")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-            tmp_wav.write(audio_data)
-            temp_filename = tmp_wav.name
-        
-        try:
-            # 音声ファイルを再生
-            print(f"一時ファイル {temp_filename} を再生中...")
-            subprocess.run(['aplay', temp_filename], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("再生が完了しました。")
-        finally:
-            # 一時ファイルを削除
-            os.remove(temp_filename)
-            print(f"一時ファイル {temp_filename} を削除しました。")
+  # モデルのロード
+  print("LLMをロード中...")
+  try:
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    model = AutoModelForCausalLM.from_pretrained(
+      MODEL_ID,
+      torch_dtype=torch.bfloat16,
+      device_map="auto",
+      load_in_4bit=True,
+    )
+    # テキスト生成パイプラインを作成
+    pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
+  except Exception as e:
+    print(f"モデルのロード中にエラーが発生しました: {e}")
+    return
+  print("LLMのロードが完了しました。")
 
-    except requests.exceptions.RequestException as e:
-        print(f"エラー: VOICEVOX Engineに接続できませんでした。")
-        print("Dockerコンテナが起動しているか、URLが正しいか確認してください。")       
-        print(f"詳細: {e}")
-    except Exception as e:
-        print(f"予期せぬエラーが発生しました: {e}")
+  # ---- 処理の実行 ----
+  # 1. AIの応答を生成
+  ai_response = generate_llm_response(args.prompt, pipe)
+
+  if ai_response:
+    synthesize_and_play_voice(ai_response, args.speaker)
+  else:
+    print("AIの応答を生成できませんでした。音声再生をスキップします。")
+  
 
 if __name__ == "__main__":
-    play_voice()
+  main()
