@@ -1,13 +1,14 @@
 import requests
 import json
 import io
-from pydub import AudioSegment
-from pydub.playback import play
+import subprocess
+import tempfile
+import os
 
 # --- 設定項目 ---
-text = "こんにちは、ボイスボックスです。"
+text = "こんにちは、ずんだもんなのだ。今日はVOICEVOXの音声合成を試しているのだ。"
 speaker_id = 1
-voicevox_url = "  https://923d-59-158-102-54.ngrok-free.app"
+voicevox_url = "http://0.0.0.0:50021"
 # -----------------
 
 def play_voice():
@@ -32,17 +33,28 @@ def play_voice():
         )
         
         response_synth.raise_for_status()
-
-
-        print("ステップ3: 音声を再生します...")
         audio_data = response_synth.content
-        song = AudioSegment.from_file(io.BytesIO(audio_data), format="wav")
-        play(song)
-        print("再生が完了しました。")
+
+
+
+        print("ステップ3: 音声をファイルに保存して再生します...")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
+            tmp_wav.write(audio_data)
+            temp_filename = tmp_wav.name
+        
+        try:
+            # 音声ファイルを再生
+            print(f"一時ファイル {temp_filename} を再生中...")
+            subprocess.run(['aplay', temp_filename], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("再生が完了しました。")
+        finally:
+            # 一時ファイルを削除
+            os.remove(temp_filename)
+            print(f"一時ファイル {temp_filename} を削除しました。")
 
     except requests.exceptions.RequestException as e:
         print(f"エラー: VOICEVOX Engineに接続できませんでした。")
-        print("プロキシ設定やファイアウォールが原因の可能性があります。")
+        print("Dockerコンテナが起動しているか、URLが正しいか確認してください。")       
         print(f"詳細: {e}")
     except Exception as e:
         print(f"予期せぬエラーが発生しました: {e}")
