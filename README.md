@@ -22,7 +22,7 @@ dockerでAPIサーバーを立てなくても、VOICEVOXアプリを立ち上げ
 python3.12.3を使用
 requirements.txtに書かれているパッケージを以下のコマンドでインストール
 ```bash
-pip install -r requirements.txt
+pip install -r {使用したいLLMに応じてファイル名を入力}
 ```
 
 #### pytorchのインストール
