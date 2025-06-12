@@ -1,4 +1,4 @@
-## ずんだもんボイスの生成AI
+# ずんだもんボイスの生成AI
 
 ## セットアップ
 以下の公式GitHubに書いてある手順どおりに進めればOK。Dockerでvoicevoxの音声合成機能を提供するAPIサーバーのコンテナを立ち上げる。
@@ -24,3 +24,15 @@ requirements.txtに書かれているパッケージを以下のコマンドで�
 ```bash
 pip install -r requirements.txt
 ```
+
+#### pytorchのインストール
+自分の環境に合わせてpytorchをインストールする。
+
+#### huggingface-cliへログイン
+tokenを使用してhuggingface-cliへログイン
+``` bash
+huggingface-cli login
+```
+tokenはREADで作成すればいい。
+
+
