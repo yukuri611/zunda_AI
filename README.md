@@ -24,3 +24,15 @@ requirements.txtに書かれているパッケージを以下のコマンドで�
 ```bash
 pip install -r requirements.txt
 ```
+
+#### pytorchのインストール
+自分の環境に合わせてpytorchをインストールする。
+
+#### huggingface-cliへログイン
+tokenを使用してhuggingface-cliへログイン
+``` bash
+huggingface-cli login
+```
+tokenはREADで作成すればいい。
+
+
